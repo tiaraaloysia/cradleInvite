@@ -45,7 +45,7 @@
   :root{
     --foil: linear-gradient(115deg,#7d5d1a 0%,#b8923f 16%,#e6c877 30%,#c49d48 44%,#9a7629 56%,#dcbc6a 72%,#ad8834 88%,#7d5d1a 100%);
   }
-  html{ scroll-behavior:smooth; }
+  html{ scroll-behavior:auto; }
   html,body{ background:#f8f0e5; }
   body{
     color:#4a3a2c; -webkit-font-smoothing:antialiased; overflow-x:hidden;
@@ -175,6 +175,17 @@
   .hint{ animation:cue 2s ease-in-out infinite; }
 
   .toast{ transition:all .35s ease; }
+  /* zoom + flip */
+  .flip-stage{ position:fixed; inset:0; z-index:8; perspective:1600px; pointer-events:none; }
+  .flipper{ position:absolute; transform-style:preserve-3d; transform-origin:50% 50%; will-change:transform; }
+  .flip-face{ position:absolute; inset:0; border-radius:6px; backface-visibility:hidden; -webkit-backface-visibility:hidden;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+  .flip-front{ background:linear-gradient(180deg,#fffdf8,#fbf1e6); box-shadow:0 20px 50px -18px rgba(90,64,20,.45), inset 0 0 0 1px rgba(201,162,77,.35); }
+  .flip-back{ transform:rotateY(180deg); box-shadow: inset 0 0 0 1.5px rgba(201,162,77,.6), inset 0 0 0 4px rgba(255,255,255,.7);
+    background: radial-gradient(circle at 20% 10%, #fae4e7, transparent 60%), radial-gradient(circle at 90% 60%, #f7e7b0, transparent 55%), linear-gradient(180deg,#fdf8f1,#f7eee2); }
+  #envelopeOverlay > :not(.flip-stage){ transition:opacity .6s ease; }
+  #envelopeOverlay.zooming > :not(.flip-stage){ opacity:0; }
+  #envelopeOverlay.zooming .hint{ animation:none; }
   .petal{ position:fixed; top:-40px; pointer-events:none; z-index:55; animation:fall linear forwards; }
   @keyframes fall{ to{ transform:translate3d(var(--dx),110vh,0) rotate(var(--rot)); opacity:0; } }
 
@@ -611,8 +622,7 @@
 const EVENT = {
   title: "Princess Tiara's Cradle Ceremony",
   venue: "Barracks Bristow",
-  // Replace with the exact Google Maps share link if you have one
-  mapsUrl: "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent("Barracks Bristow"),
+  mapsUrl: "https://maps.app.goo.gl/QPYHjdedSM7haska7",
   start: new Date("2026-10-18T11:00:00+05:30"),   // 11:00 AM IST
   end:   new Date("2026-10-18T15:00:00+05:30"),
   // WhatsApp number that receives RSVPs — digits with country code, e.g. "919876543210".
@@ -740,19 +750,119 @@ document.addEventListener("visibilitychange", () => { if (document.hidden && pla
 
 /* ======================= ENVELOPE ======================= */
 let opened = false;
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function finishOpening(){
+  $("envelopeOverlay").classList.add("gone");
+  document.body.classList.remove("locked");
+  window.scrollTo(0, 0);
+  $("musicBtn").classList.remove("hidden"); $("musicBtn").classList.add("flex");
+  startReveals(); petals(28);
+  autoScroll.arm();
+}
+
+// Card slides out → zooms toward the guest → flips while zooming → cradle appears
+function zoomAndFlip(){
+  const card = document.querySelector(".env-card");
+  const r = card.getBoundingClientRect();
+  const vw = innerWidth, vh = innerHeight;
+
+  const stage = document.createElement("div");
+  stage.className = "flip-stage";
+  const flipper = document.createElement("div");
+  flipper.className = "flipper";
+  Object.assign(flipper.style, { left:r.left+"px", top:r.top+"px", width:r.width+"px", height:r.height+"px" });
+  flipper.innerHTML = `<div class="flip-face flip-front">${card.innerHTML}</div><div class="flip-face flip-back"></div>`;
+  stage.appendChild(flipper);
+  $("envelopeOverlay").appendChild(stage);
+  card.style.visibility = "hidden";
+  $("envelopeOverlay").classList.add("zooming");   // fades envelope + texts
+
+  const dx = vw/2 - (r.left + r.width/2), dy = vh/2 - (r.top + r.height/2);
+  const fit = Math.min(vw*0.82 / r.width, vh*0.5 / r.height);   // comfortable "read me" size
+  const cover = Math.max(vw / r.width, vh / r.height) * 1.25;   // fills the screen
+  const anim = flipper.animate([
+    { transform:`translate(0,0) scale(1) rotateY(0deg)`, offset:0 },
+    { transform:`translate(${dx}px,${dy}px) scale(${fit}) rotateY(0deg)`, offset:.38 },
+    { transform:`translate(${dx}px,${dy}px) scale(${fit*1.12}) rotateY(0deg)`, offset:.55 },
+    { transform:`translate(${dx}px,${dy}px) scale(${cover}) rotateY(180deg)`, offset:1 }
+  ], { duration:2500, easing:"cubic-bezier(.45,.05,.25,1)", fill:"forwards" });
+  // as the flipped card fills the screen, let the cradle scene bloom through it
+  setTimeout(() => {
+    finishOpening();
+    stage.animate([{ opacity:1 }, { opacity:0 }], { duration:800, easing:"ease-out", fill:"forwards" })
+         .onfinish = () => stage.remove();
+  }, 2500 * 0.8);
+}
+
 $("waxSeal").addEventListener("click", () => {
   if (opened) return; opened = true;
   const withSound = $("soundPref").checked;
-  if (withSound){ harpChime(); startLullaby(2600); }
+  if (withSound){ harpChime(); startLullaby(4200); }
   $("waxSeal").classList.add("seal-break");
   setTimeout(() => $("env").classList.add("opened"), 350);
-  setTimeout(() => {
-    $("envelopeOverlay").classList.add("gone");
-    document.body.classList.remove("locked");
-    $("musicBtn").classList.remove("hidden"); $("musicBtn").classList.add("flex");
-    startReveals(); petals(28);
-  }, 2150);
+  if (reduceMotion || !Element.prototype.animate) setTimeout(finishOpening, 2150);
+  else setTimeout(zoomAndFlip, 2100);
 });
+
+document.querySelector('a[href="#letter"]').addEventListener("click", e => {
+  e.preventDefault(); $("letter").scrollIntoView({ behavior:"smooth", block:"start" });
+});
+
+/* ======================= GENTLE AUTO-SCROLL ======================= */
+// Starts after the guest's first scroll, drifts slowly so they can read,
+// pauses on any touch / wheel / key, and resumes after they stop.
+// Stops for good once they start filling the RSVP form or reach the end.
+const autoScroll = (() => {
+  const SPEED = 30;          // px per second
+  const RESUME_AFTER = 5000; // ms of no interaction before resuming
+  let state = "off";         // off → armed → running ⇄ paused → done
+  let raf = 0, last = 0, pos = 0, ramp = 0, resumeT = 0, startT = 0;
+
+  const atBottom = () => innerHeight + scrollY >= document.documentElement.scrollHeight - 2;
+  function frame(t){
+    if (state !== "running") return;
+    const dt = Math.min(.05, (t - last) / 1000); last = t;
+    ramp = Math.min(1, ramp + dt / 1.6);                     // ease in over ~1.6s
+    pos += SPEED * dt * ramp * ramp;
+    window.scrollTo({ top: pos, behavior: "instant" });
+    if (atBottom()) return stop();
+    raf = requestAnimationFrame(frame);
+  }
+  function run(){
+    if (state === "done" || document.hidden) return;
+    state = "running"; pos = scrollY; ramp = 0; last = performance.now();
+    raf = requestAnimationFrame(frame);
+  }
+  function pause(){
+    cancelAnimationFrame(raf); clearTimeout(resumeT);
+    if (state === "running" || state === "paused"){
+      state = "paused";
+      resumeT = setTimeout(() => { if (state === "paused" && !formBusy()) run(); }, RESUME_AFTER);
+    }
+  }
+  function stop(){ cancelAnimationFrame(raf); clearTimeout(resumeT); clearTimeout(startT); state = "done"; }
+  const formBusy = () => document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+
+  function onIntent(e){
+    if (state === "off" || state === "done") return;
+    if (e.type === "keydown" && !/Arrow|Page|Space|Home|End/.test(e.code)) return;
+    if (state === "armed") return;                           // armed waits for a real scroll (below)
+    pause();
+  }
+  // first real scroll by the guest → start once the gesture settles
+  addEventListener("scroll", () => {
+    if (state !== "armed" || scrollY < 40) return;
+    clearTimeout(startT);
+    startT = setTimeout(() => { if (state === "armed" && !atBottom() && !formBusy()) run(); }, 900);
+  }, { passive:true });
+  ["wheel","touchstart","touchmove","pointerdown","keydown"].forEach(ev =>
+    addEventListener(ev, onIntent, { passive:true }));
+  addEventListener("focusin", e => { if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) stop(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden && state === "running") pause(); });
+
+  return { arm(){ if (state === "off") state = "armed"; }, stop };
+})();
 
 /* ======================= HERO CRADLE ======================= */
 $("cradleBtn").addEventListener("click", () => {
